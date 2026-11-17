@@ -125,5 +125,5 @@ grant update (is_hidden, admin_reply, admin_replied_at) on public.aspirations to
 grant delete on public.aspirations to authenticated;
 grant select on public.profiles to authenticated;
 revoke all on function public.handle_new_user_profile() from public, anon, authenticated;
-revoke all on function public.is_admin() from public, anon;
-grant execute on function public.is_admin() to authenticated;
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to anon, authenticated;
