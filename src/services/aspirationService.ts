@@ -1,0 +1,467 @@
+import {
+  ASPIRATION_CATEGORIES,
+  DEFAULT_MEDIA_ASSETS,
+  FORM_LIMITS,
+  LOCAL_ADMIN_DEMO,
+  resolveAdminLoginEmail,
+  SAMPLE_ASPIRATIONS,
+} from '../config/appConfig';
+import type {
+  Aspiration,
+  CreateAspirationInput,
+  MediaAssets,
+} from '../types/aspiration';
+
+export interface AdminSessionUser {
+  uid: string;
+  email: string | null;
+  isSimulatedLocal?: boolean;
+}
+
+const STORAGE_KEYS = {
+  aspirations: 'aspirasi_spensa_aspirations_v1',
+  samplesSeeded: 'aspirasi_spensa_samples_seeded_v1',
+  media: 'aspirasi_spensa_media_v1',
+  adminSession: 'aspirasi_spensa_admin_session_v1',
+} as const;
+
+type Listener<T> = (data: T) => void;
+type ErrorListener = (err: Error) => void;
+
+const publicListeners = new Set<{
+  onData: Listener<Aspiration[]>;
+  onError?: ErrorListener;
+}>();
+
+const adminListeners = new Set<{
+  onData: Listener<Aspiration[]>;
+  onError?: ErrorListener;
+}>();
+
+const mediaListeners = new Set<{
+  onData: Listener<MediaAssets>;
+  onError?: ErrorListener;
+}>();
+
+let storageEventAttached = false;
+
+function hasLocalStorage(): boolean {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
+}
+
+function sortByNewest(items: Aspiration[]): Aspiration[] {
+  return [...items].sort((a, b) => {
+    const timeA = Date.parse(a.createdAt) || 0;
+    const timeB = Date.parse(b.createdAt) || 0;
+    return timeB - timeA;
+  });
+}
+
+function isValidAspiration(item: unknown): item is Aspiration {
+  if (!item || typeof item !== 'object') return false;
+  const candidate = item as Partial<Aspiration>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.message === 'string' &&
+    typeof candidate.author === 'string' &&
+    typeof candidate.createdAt === 'string' &&
+    typeof candidate.category === 'string' &&
+    ASPIRATION_CATEGORIES.includes(candidate.category)
+  );
+}
+
+function writeToStorage(key: string, value: string): void {
+  if (!hasLocalStorage()) {
+    throw new Error('Browser tidak mendukung penyimpanan LocalStorage.');
+  }
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (err) {
+    if (
+      err instanceof DOMException &&
+      (err.name === 'QuotaExceededError' ||
+        err.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+    ) {
+      throw new Error(
+        'Kapasitas LocalStorage browser penuh. Hapus beberapa foto galeri atau gunakan tautan URL gambar.'
+      );
+    }
+    throw new Error('Gagal menyimpan data ke LocalStorage browser.');
+  }
+}
+
+function readAspirationsFromStorage(): Aspiration[] {
+  if (!hasLocalStorage()) {
+    return sortByNewest(SAMPLE_ASPIRATIONS);
+  }
+
+  const raw = window.localStorage.getItem(STORAGE_KEYS.aspirations);
+  const alreadySeeded =
+    window.localStorage.getItem(STORAGE_KEYS.samplesSeeded) === 'true';
+
+  // Inisialisasi data contoh hanya satu kali saat LocalStorage benar-benar belum memiliki data
+  if (raw === null && !alreadySeeded) {
+    const initial = sortByNewest(SAMPLE_ASPIRATIONS);
+    writeToStorage(STORAGE_KEYS.aspirations, JSON.stringify(initial));
+    writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
+    return initial;
+  }
+
+  if (raw === null) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    if (!alreadySeeded) {
+      writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
+    }
+    return sortByNewest(parsed.filter(isValidAspiration));
+  } catch {
+    return [];
+  }
+}
+
+function saveAspirationsToStorage(items: Aspiration[]): Aspiration[] {
+  const sorted = sortByNewest(items);
+  writeToStorage(STORAGE_KEYS.aspirations, JSON.stringify(sorted));
+  writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
+  return sorted;
+}
+
+function normalizeMediaAssets(raw: unknown): MediaAssets {
+  if (!raw || typeof raw !== 'object') {
+    return { ...DEFAULT_MEDIA_ASSETS };
+  }
+  const obj = raw as Partial<MediaAssets>;
+  const exploreGalleryUrls =
+    Array.isArray(obj.exploreGalleryUrls) &&
+    obj.exploreGalleryUrls.length > 0
+      ? obj.exploreGalleryUrls
+          .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+          .slice(0, 10)
+      : [...DEFAULT_MEDIA_ASSETS.exploreGalleryUrls];
+
+  const writeGalleryUrls =
+    Array.isArray(obj.writeGalleryUrls) && obj.writeGalleryUrls.length > 0
+      ? obj.writeGalleryUrls
+          .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+          .slice(0, 10)
+      : [...DEFAULT_MEDIA_ASSETS.writeGalleryUrls];
+
+  return {
+    schoolLogoUrl:
+      typeof obj.schoolLogoUrl === 'string' && obj.schoolLogoUrl.trim().length > 0
+        ? obj.schoolLogoUrl
+        : null,
+    exploreGalleryUrls:
+      exploreGalleryUrls.length > 0
+        ? exploreGalleryUrls
+        : [...DEFAULT_MEDIA_ASSETS.exploreGalleryUrls],
+    writeGalleryUrls:
+      writeGalleryUrls.length > 0
+        ? writeGalleryUrls
+        : [...DEFAULT_MEDIA_ASSETS.writeGalleryUrls],
+  };
+}
+
+function readMediaFromStorage(): MediaAssets {
+  if (!hasLocalStorage()) {
+    return { ...DEFAULT_MEDIA_ASSETS };
+  }
+  const raw = window.localStorage.getItem(STORAGE_KEYS.media);
+  if (raw === null) {
+    const defaults = { ...DEFAULT_MEDIA_ASSETS };
+    writeToStorage(STORAGE_KEYS.media, JSON.stringify(defaults));
+    return defaults;
+  }
+  try {
+    return normalizeMediaAssets(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_MEDIA_ASSETS };
+  }
+}
+
+function notifyAspirationListeners(): void {
+  try {
+    const all = readAspirationsFromStorage();
+    const visible = all.filter((item) => !item.isHidden);
+    publicListeners.forEach((l) => l.onData(visible));
+    if (getStoredAdminSession()) {
+      adminListeners.forEach((l) => l.onData(all));
+    }
+  } catch (err) {
+    const wrapped =
+      err instanceof Error
+        ? err
+        : new Error('Gagal membaca data aspirasi dari LocalStorage.');
+    publicListeners.forEach((l) => l.onError?.(wrapped));
+    adminListeners.forEach((l) => l.onError?.(wrapped));
+  }
+}
+
+function notifyMediaListeners(): void {
+  try {
+    const assets = readMediaFromStorage();
+    mediaListeners.forEach((l) => l.onData(assets));
+  } catch (err) {
+    const wrapped =
+      err instanceof Error
+        ? err
+        : new Error('Gagal membaca pengaturan media dari LocalStorage.');
+    mediaListeners.forEach((l) => l.onError?.(wrapped));
+  }
+}
+
+function ensureStorageSyncListener(): void {
+  if (storageEventAttached || typeof window === 'undefined') return;
+  storageEventAttached = true;
+  window.addEventListener('storage', (event) => {
+    if (
+      event.key === STORAGE_KEYS.aspirations ||
+      event.key === STORAGE_KEYS.samplesSeeded ||
+      event.key === null
+    ) {
+      notifyAspirationListeners();
+    }
+    if (event.key === STORAGE_KEYS.media || event.key === null) {
+      notifyMediaListeners();
+    }
+  });
+}
+
+export function getStoredAdminSession(): AdminSessionUser | null {
+  if (!hasLocalStorage()) return null;
+  const raw = window.localStorage.getItem(STORAGE_KEYS.adminSession);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<AdminSessionUser>;
+    if (typeof parsed.uid === 'string' && parsed.uid.length > 0) {
+      return {
+        uid: parsed.uid,
+        email: typeof parsed.email === 'string' ? parsed.email : null,
+        isSimulatedLocal: true,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function requireAdminSession(): AdminSessionUser {
+  const session = getStoredAdminSession();
+  if (!session) {
+    throw new Error('Sesi admin lokal tidak aktif. Silakan masuk kembali.');
+  }
+  return session;
+}
+
+export function subscribePublicAspirations(
+  onData: (items: Aspiration[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  ensureStorageSyncListener();
+  const entry = { onData, onError };
+  publicListeners.add(entry);
+  try {
+    const all = readAspirationsFromStorage();
+    onData(all.filter((item) => !item.isHidden));
+  } catch (err) {
+    onError?.(
+      err instanceof Error
+        ? err
+        : new Error('Gagal memuat aspirasi dari LocalStorage.')
+    );
+  }
+  return () => {
+    publicListeners.delete(entry);
+  };
+}
+
+export function subscribeAllAspirations(
+  onData: (items: Aspiration[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  ensureStorageSyncListener();
+  const entry = { onData, onError };
+  adminListeners.add(entry);
+  try {
+    requireAdminSession();
+    onData(readAspirationsFromStorage());
+  } catch (err) {
+    onError?.(
+      err instanceof Error
+        ? err
+        : new Error('Gagal memuat daftar aspirasi admin.')
+    );
+  }
+  return () => {
+    adminListeners.delete(entry);
+  };
+}
+
+export function subscribeMediaSettings(
+  onData: (assets: MediaAssets) => void,
+  onError?: (err: Error) => void
+): () => void {
+  ensureStorageSyncListener();
+  const entry = { onData, onError };
+  mediaListeners.add(entry);
+  try {
+    onData(readMediaFromStorage());
+  } catch (err) {
+    onError?.(
+      err instanceof Error
+        ? err
+        : new Error('Gagal memuat pengaturan media dari LocalStorage.')
+    );
+  }
+  return () => {
+    mediaListeners.delete(entry);
+  };
+}
+
+export async function publishAspiration(
+  input: CreateAspirationInput
+): Promise<Aspiration> {
+  if (!ASPIRATION_CATEGORIES.includes(input.category)) {
+    throw new Error('Kategori aspirasi tidak valid.');
+  }
+
+  const cleanMessage = input.message
+    .trim()
+    .slice(0, FORM_LIMITS.maxMessageLength);
+
+  if (cleanMessage.length < FORM_LIMITS.minMessageLength) {
+    throw new Error(
+      `Isi aspirasi minimal ${FORM_LIMITS.minMessageLength} karakter.`
+    );
+  }
+
+  const trimmedAuthor = (input.author ?? '')
+    .trim()
+    .slice(0, FORM_LIMITS.maxAuthorLength);
+  const cleanAuthor = trimmedAuthor.length > 0 ? trimmedAuthor : 'Anonim';
+
+  const newAspiration: Aspiration = {
+    id: `asp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    category: input.category,
+    message: cleanMessage,
+    author: cleanAuthor,
+    createdAt: new Date().toISOString(),
+    isHidden: false,
+    isSample: false,
+  };
+
+  const current = readAspirationsFromStorage();
+  saveAspirationsToStorage([newAspiration, ...current]);
+  notifyAspirationListeners();
+  return newAspiration;
+}
+
+export async function toggleAspirationVisibility(
+  id: string,
+  nextHidden: boolean
+): Promise<void> {
+  requireAdminSession();
+  const current = readAspirationsFromStorage();
+  const updated = current.map((item) =>
+    item.id === id ? { ...item, isHidden: nextHidden } : item
+  );
+  saveAspirationsToStorage(updated);
+  notifyAspirationListeners();
+}
+
+export async function replyToAspiration(
+  id: string,
+  replyText: string
+): Promise<void> {
+  requireAdminSession();
+  const cleanReply = replyText.trim().slice(0, 400);
+  const current = readAspirationsFromStorage();
+  const updated = current.map((item) => {
+    if (item.id !== id) return item;
+    if (!cleanReply) {
+      const rest = { ...item };
+      delete rest.adminReply;
+      delete rest.adminRepliedAt;
+      return rest;
+    }
+    return {
+      ...item,
+      adminReply: cleanReply,
+      adminRepliedAt: new Date().toISOString(),
+    };
+  });
+  saveAspirationsToStorage(updated);
+  notifyAspirationListeners();
+}
+
+export async function removeAspiration(id: string): Promise<void> {
+  requireAdminSession();
+  const current = readAspirationsFromStorage();
+  const updated = current.filter((item) => item.id !== id);
+  saveAspirationsToStorage(updated);
+  notifyAspirationListeners();
+}
+
+export async function seedSampleAspirations(): Promise<void> {
+  requireAdminSession();
+  const current = readAspirationsFromStorage();
+  const existingIds = new Set(current.map((item) => item.id));
+  const missingSamples = SAMPLE_ASPIRATIONS.filter(
+    (sample) => !existingIds.has(sample.id)
+  );
+  if (missingSamples.length > 0) {
+    saveAspirationsToStorage([...current, ...missingSamples]);
+  } else {
+    writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
+  }
+  notifyAspirationListeners();
+}
+
+export async function updateMediaSettings(assets: MediaAssets): Promise<void> {
+  requireAdminSession();
+  const normalized = normalizeMediaAssets(assets);
+  writeToStorage(STORAGE_KEYS.media, JSON.stringify(normalized));
+  notifyMediaListeners();
+}
+
+export async function signInAdminWithCredentials(
+  usernameOrEmail: string,
+  password: string
+): Promise<AdminSessionUser> {
+  const cleanUser = usernameOrEmail.trim().toLowerCase();
+  const isAcceptedUser = LOCAL_ADMIN_DEMO.acceptedUsernames.some(
+    (allowed) => allowed.toLowerCase() === cleanUser
+  );
+
+  if (!isAcceptedUser || password !== LOCAL_ADMIN_DEMO.password) {
+    throw new Error(
+      'Username atau password admin simulasi tidak sesuai. Gunakan kredensial uji coba yang tertera di bawah.'
+    );
+  }
+
+  const sessionUser: AdminSessionUser = {
+    uid: 'local-admin-sim',
+    email: resolveAdminLoginEmail(cleanUser),
+    isSimulatedLocal: true,
+  };
+
+  writeToStorage(STORAGE_KEYS.adminSession, JSON.stringify(sessionUser));
+  return sessionUser;
+}
+
+export async function logoutAdmin(): Promise<void> {
+  if (hasLocalStorage()) {
+    window.localStorage.removeItem(STORAGE_KEYS.adminSession);
+  }
+}
