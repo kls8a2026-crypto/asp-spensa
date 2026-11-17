@@ -25,11 +25,6 @@ const STORAGE_KEYS = {
 type Listener<T> = (data: T) => void;
 type ErrorListener = (err: Error) => void;
 
-const publicListeners = new Set<{
-  onData: Listener<Aspiration[]>;
-  onError?: ErrorListener;
-}>();
-
 const mediaListeners = new Set<{
   onData: Listener<MediaAssets>;
   onError?: ErrorListener;
@@ -53,19 +48,6 @@ function sortByNewest(items: Aspiration[]): Aspiration[] {
   });
 }
 
-function isValidAspiration(item: unknown): item is Aspiration {
-  if (!item || typeof item !== 'object') return false;
-  const candidate = item as Partial<Aspiration>;
-  return (
-    typeof candidate.id === 'string' &&
-    typeof candidate.message === 'string' &&
-    typeof candidate.author === 'string' &&
-    typeof candidate.createdAt === 'string' &&
-    typeof candidate.category === 'string' &&
-    ASPIRATION_CATEGORIES.includes(candidate.category)
-  );
-}
-
 function writeToStorage(key: string, value: string): void {
   if (!hasLocalStorage()) {
     throw new Error('Browser tidak mendukung penyimpanan LocalStorage.');
@@ -84,48 +66,6 @@ function writeToStorage(key: string, value: string): void {
     }
     throw new Error('Gagal menyimpan data ke LocalStorage browser.');
   }
-}
-
-function readAspirationsFromStorage(): Aspiration[] {
-  if (!hasLocalStorage()) {
-    return sortByNewest(SAMPLE_ASPIRATIONS);
-  }
-
-  const raw = window.localStorage.getItem(STORAGE_KEYS.aspirations);
-  const alreadySeeded =
-    window.localStorage.getItem(STORAGE_KEYS.samplesSeeded) === 'true';
-
-  // Inisialisasi data contoh hanya satu kali saat LocalStorage benar-benar belum memiliki data
-  if (raw === null && !alreadySeeded) {
-    const initial = sortByNewest(SAMPLE_ASPIRATIONS);
-    writeToStorage(STORAGE_KEYS.aspirations, JSON.stringify(initial));
-    writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
-    return initial;
-  }
-
-  if (raw === null) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    if (!alreadySeeded) {
-      writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
-    }
-    return sortByNewest(parsed.filter(isValidAspiration));
-  } catch {
-    return [];
-  }
-}
-
-function saveAspirationsToStorage(items: Aspiration[]): Aspiration[] {
-  const sorted = sortByNewest(items);
-  writeToStorage(STORAGE_KEYS.aspirations, JSON.stringify(sorted));
-  writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
-  return sorted;
 }
 
 function normalizeMediaAssets(raw: unknown): MediaAssets {
@@ -181,24 +121,6 @@ function readMediaFromStorage(): MediaAssets {
   }
 }
 
-function notifyAspirationListeners(): void {
-  try {
-    const all = readAspirationsFromStorage();
-    const visible = all.filter((item) => !item.isHidden);
-    publicListeners.forEach((l) => l.onData(visible));
-    if (getStoredAdminSession()) {
-      adminListeners.forEach((l) => l.onData(all));
-    }
-  } catch (err) {
-    const wrapped =
-      err instanceof Error
-        ? err
-        : new Error('Gagal membaca data aspirasi dari LocalStorage.');
-    publicListeners.forEach((l) => l.onError?.(wrapped));
-    adminListeners.forEach((l) => l.onError?.(wrapped));
-  }
-}
-
 function notifyMediaListeners(): void {
   try {
     const assets = readMediaFromStorage();
@@ -216,13 +138,6 @@ function ensureStorageSyncListener(): void {
   if (storageEventAttached || typeof window === 'undefined') return;
   storageEventAttached = true;
   window.addEventListener('storage', (event) => {
-    if (
-      event.key === STORAGE_KEYS.aspirations ||
-      event.key === STORAGE_KEYS.samplesSeeded ||
-      event.key === null
-    ) {
-      notifyAspirationListeners();
-    }
     if (event.key === STORAGE_KEYS.media || event.key === null) {
       notifyMediaListeners();
     }
