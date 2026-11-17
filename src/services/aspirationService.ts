@@ -3,8 +3,6 @@ import {
   ASPIRATION_CATEGORIES,
   DEFAULT_MEDIA_ASSETS,
   FORM_LIMITS,
-  LOCAL_ADMIN_DEMO,
-  resolveAdminLoginEmail,
   SAMPLE_ASPIRATIONS,
 } from '../config/appConfig';
 import type {
@@ -16,25 +14,18 @@ import type {
 export interface AdminSessionUser {
   uid: string;
   email: string | null;
-  isSimulatedLocal?: boolean;
 }
 
 const STORAGE_KEYS = {
   aspirations: 'aspirasi_spensa_aspirations_v1',
   samplesSeeded: 'aspirasi_spensa_samples_seeded_v1',
   media: 'aspirasi_spensa_media_v1',
-  adminSession: 'aspirasi_spensa_admin_session_v1',
 } as const;
 
 type Listener<T> = (data: T) => void;
 type ErrorListener = (err: Error) => void;
 
 const publicListeners = new Set<{
-  onData: Listener<Aspiration[]>;
-  onError?: ErrorListener;
-}>();
-
-const adminListeners = new Set<{
   onData: Listener<Aspiration[]>;
   onError?: ErrorListener;
 }>();
@@ -238,31 +229,51 @@ function ensureStorageSyncListener(): void {
   });
 }
 
-export function getStoredAdminSession(): AdminSessionUser | null {
-  if (!hasLocalStorage()) return null;
-  const raw = window.localStorage.getItem(STORAGE_KEYS.adminSession);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<AdminSessionUser>;
-    if (typeof parsed.uid === 'string' && parsed.uid.length > 0) {
-      return {
-        uid: parsed.uid,
-        email: typeof parsed.email === 'string' ? parsed.email : null,
-        isSimulatedLocal: true,
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
+export async function getCurrentAdminSession(): Promise<AdminSessionUser | null> {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error || !user) return null;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profileError || profile?.role !== 'admin') return null;
+  return { uid: user.id, email: user.email ?? null };
 }
 
-function requireAdminSession(): AdminSessionUser {
-  const session = getStoredAdminSession();
-  if (!session) {
-    throw new Error('Sesi admin lokal tidak aktif. Silakan masuk kembali.');
+export async function signInAdminWithCredentials(
+  email: string,
+  password: string
+): Promise<AdminSessionUser> {
+  const cleanEmail = email.trim().toLowerCase();
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: cleanEmail,
+    password,
+  });
+
+  if (error || !data.user) {
+    throw new Error(error?.message || 'Email atau password admin tidak sesuai.');
   }
-  return session;
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  if (profileError || profile?.role !== 'admin') {
+    await supabase.auth.signOut();
+    throw new Error('Akun ini belum memiliki hak akses admin. Hubungi pengelola aplikasi.');
+  }
+
+  return { uid: data.user.id, email: data.user.email ?? null };
+}
+
+export async function logoutAdmin(): Promise<void> {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(`Gagal keluar dari akun admin: ${error.message}`);
 }
 
 function mapSupabaseAspiration(row: {
@@ -335,21 +346,37 @@ export function subscribeAllAspirations(
   onData: (items: Aspiration[]) => void,
   onError?: (err: Error) => void
 ): () => void {
-  ensureStorageSyncListener();
-  const entry = { onData, onError };
-  adminListeners.add(entry);
-  try {
-    requireAdminSession();
-    onData(readAspirationsFromStorage());
-  } catch (err) {
-    onError?.(
-      err instanceof Error
-        ? err
-        : new Error('Gagal memuat daftar aspirasi admin.')
-    );
-  }
+  let active = true;
+
+  const load = async () => {
+    const { data, error } = await supabase
+      .from('aspirations')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!active) return;
+    if (error) {
+      onError?.(new Error(`Gagal memuat dashboard admin: ${error.message}`));
+      return;
+    }
+    onData((data ?? []).map((row) => mapSupabaseAspiration(row)));
+  };
+
+  void load();
+  const channel = supabase
+    .channel(`admin-aspirations-${Math.random().toString(36).slice(2)}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'aspirations' }, () => {
+      void load();
+    })
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        onError?.(new Error('Koneksi pembaruan langsung dashboard admin gagal.'));
+      }
+    });
+
   return () => {
-    adminListeners.delete(entry);
+    active = false;
+    void supabase.removeChannel(channel);
   };
 }
 
@@ -416,65 +443,58 @@ export async function publishAspiration(
   return mapSupabaseAspiration(data);
 }
 
+async function requireAdminSession(): Promise<void> {
+  const session = await getCurrentAdminSession();
+  if (!session) throw new Error('Sesi admin tidak aktif atau akun tidak memiliki hak admin. Silakan masuk kembali.');
+}
+
 export async function toggleAspirationVisibility(
   id: string,
   nextHidden: boolean
 ): Promise<void> {
-  requireAdminSession();
-  const current = readAspirationsFromStorage();
-  const updated = current.map((item) =>
-    item.id === id ? { ...item, isHidden: nextHidden } : item
-  );
-  saveAspirationsToStorage(updated);
-  notifyAspirationListeners();
+  await requireAdminSession();
+  const { error } = await supabase
+    .from('aspirations')
+    .update({ is_hidden: nextHidden })
+    .eq('id', id);
+  if (error) throw new Error(`Gagal memperbarui status aspirasi: ${error.message}`);
 }
 
 export async function replyToAspiration(
   id: string,
   replyText: string
 ): Promise<void> {
-  requireAdminSession();
+  await requireAdminSession();
   const cleanReply = replyText.trim().slice(0, 400);
-  const current = readAspirationsFromStorage();
-  const updated = current.map((item) => {
-    if (item.id !== id) return item;
-    if (!cleanReply) {
-      const rest = { ...item };
-      delete rest.adminReply;
-      delete rest.adminRepliedAt;
-      return rest;
-    }
-    return {
-      ...item,
-      adminReply: cleanReply,
-      adminRepliedAt: new Date().toISOString(),
-    };
-  });
-  saveAspirationsToStorage(updated);
-  notifyAspirationListeners();
+  const { error } = await supabase
+    .from('aspirations')
+    .update({
+      admin_reply: cleanReply || null,
+      admin_replied_at: cleanReply ? new Date().toISOString() : null,
+    })
+    .eq('id', id);
+  if (error) throw new Error(`Gagal menyimpan balasan admin: ${error.message}`);
 }
 
 export async function removeAspiration(id: string): Promise<void> {
-  requireAdminSession();
-  const current = readAspirationsFromStorage();
-  const updated = current.filter((item) => item.id !== id);
-  saveAspirationsToStorage(updated);
-  notifyAspirationListeners();
+  await requireAdminSession();
+  const { error } = await supabase.from('aspirations').delete().eq('id', id);
+  if (error) throw new Error(`Gagal menghapus aspirasi: ${error.message}`);
 }
 
 export async function seedSampleAspirations(): Promise<void> {
-  requireAdminSession();
-  const current = readAspirationsFromStorage();
-  const existingIds = new Set(current.map((item) => item.id));
-  const missingSamples = SAMPLE_ASPIRATIONS.filter(
-    (sample) => !existingIds.has(sample.id)
-  );
-  if (missingSamples.length > 0) {
-    saveAspirationsToStorage([...current, ...missingSamples]);
-  } else {
-    writeToStorage(STORAGE_KEYS.samplesSeeded, 'true');
-  }
-  notifyAspirationListeners();
+  await requireAdminSession();
+  const samples = SAMPLE_ASPIRATIONS.map((item) => ({
+    category: item.category,
+    message: item.message,
+    author: item.author,
+    created_at: item.createdAt,
+    is_hidden: Boolean(item.isHidden),
+    admin_reply: item.adminReply ?? null,
+    admin_replied_at: item.adminRepliedAt ?? null,
+  }));
+  const { error } = await supabase.from('aspirations').insert(samples);
+  if (error) throw new Error(`Gagal menambahkan aspirasi contoh: ${error.message}`);
 }
 
 export async function updateMediaSettings(assets: MediaAssets): Promise<void> {
