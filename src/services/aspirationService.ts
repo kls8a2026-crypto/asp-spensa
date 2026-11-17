@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase';
 import {
   ASPIRATION_CATEGORIES,
   DEFAULT_MEDIA_ASSETS,
@@ -264,25 +265,69 @@ function requireAdminSession(): AdminSessionUser {
   return session;
 }
 
+function mapSupabaseAspiration(row: {
+  id: string;
+  category: Aspiration['category'];
+  message: string;
+  author: string;
+  created_at: string;
+  is_hidden: boolean;
+  admin_reply: string | null;
+  admin_replied_at: string | null;
+}): Aspiration {
+  return {
+    id: row.id,
+    category: row.category,
+    message: row.message,
+    author: row.author,
+    createdAt: row.created_at,
+    isHidden: row.is_hidden,
+    isSample: false,
+    ...(row.admin_reply ? { adminReply: row.admin_reply } : {}),
+    ...(row.admin_replied_at ? { adminRepliedAt: row.admin_replied_at } : {}),
+  };
+}
+
 export function subscribePublicAspirations(
   onData: (items: Aspiration[]) => void,
   onError?: (err: Error) => void
 ): () => void {
-  ensureStorageSyncListener();
-  const entry = { onData, onError };
-  publicListeners.add(entry);
-  try {
-    const all = readAspirationsFromStorage();
-    onData(all.filter((item) => !item.isHidden));
-  } catch (err) {
-    onError?.(
-      err instanceof Error
-        ? err
-        : new Error('Gagal memuat aspirasi dari LocalStorage.')
-    );
-  }
+  let active = true;
+
+  const load = async () => {
+    const { data, error } = await supabase
+      .from('aspirations')
+      .select('*')
+      .eq('is_hidden', false)
+      .order('created_at', { ascending: false });
+
+    if (!active) return;
+    if (error) {
+      onError?.(new Error(`Gagal memuat aspirasi dari Supabase: ${error.message}`));
+      return;
+    }
+
+    onData((data ?? []).map((row) => mapSupabaseAspiration(row)));
+  };
+
+  void load();
+
+  const channel = supabase
+    .channel(`public-aspirations-${Math.random().toString(36).slice(2)}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'aspirations' },
+      () => { void load(); }
+    )
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        onError?.(new Error('Koneksi pembaruan langsung Supabase gagal. Periksa pengaturan Realtime untuk tabel aspirations.'));
+      }
+    });
+
   return () => {
-    publicListeners.delete(entry);
+    active = false;
+    void supabase.removeChannel(channel);
   };
 }
 
@@ -351,20 +396,24 @@ export async function publishAspiration(
     .slice(0, FORM_LIMITS.maxAuthorLength);
   const cleanAuthor = trimmedAuthor.length > 0 ? trimmedAuthor : 'Anonim';
 
-  const newAspiration: Aspiration = {
-    id: `asp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    category: input.category,
-    message: cleanMessage,
-    author: cleanAuthor,
-    createdAt: new Date().toISOString(),
-    isHidden: false,
-    isSample: false,
-  };
+  const { data, error } = await supabase
+    .from('aspirations')
+    .insert({
+      category: input.category,
+      message: cleanMessage,
+      author: cleanAuthor,
+    })
+    .select('*')
+    .single();
 
-  const current = readAspirationsFromStorage();
-  saveAspirationsToStorage([newAspiration, ...current]);
-  notifyAspirationListeners();
-  return newAspiration;
+  if (error) {
+    throw new Error(`Gagal mengirim aspirasi ke Supabase: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error('Aspirasi terkirim, tetapi data balasan dari Supabase kosong.');
+  }
+
+  return mapSupabaseAspiration(data);
 }
 
 export async function toggleAspirationVisibility(
