@@ -26,7 +26,6 @@ import {
   getCategoryGlassTile,
   GlassCategoryIcon,
 } from '../components/GlassCategoryIcon';
-import { ADMIN_AUTH_DOMAIN } from '../config/appConfig';
 import type { AdminSessionUser } from '../services/aspirationService';
 import { Aspiration, MediaAssets, PageRoute } from '../types/aspiration';
 import { formatIndonesianDateTime } from '../utils/dateFormat';
@@ -71,7 +70,7 @@ export function AdminPage({
 }: AdminPageProps) {
   const prefersReducedMotion = useReducedMotion();
 
-  // State Login Simulasi Lokal
+  // State Login Supabase Auth
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -116,7 +115,7 @@ export function AdminPage({
     e.preventDefault();
     const cleanUsername = username.trim();
     if (!cleanUsername || !password) {
-      setLoginError('Masukkan username dan password admin terlebih dahulu.');
+      setLoginError('Masukkan email dan password admin terlebih dahulu.');
       return;
     }
 
@@ -138,14 +137,6 @@ export function AdminPage({
     }
   };
 
-  const formatAdminIdentity = (email?: string | null) => {
-    if (!email) return '';
-    const domainSuffix = `@${ADMIN_AUTH_DOMAIN}`;
-    return email.endsWith(domainSuffix)
-      ? email.slice(0, -domainSuffix.length)
-      : email;
-  };
-
   const handleLogoFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     setMediaNotice('');
     setMediaError('');
@@ -157,7 +148,7 @@ export function AdminPage({
     try {
       const compressed = await compressImageFile(file, 512, 0.85);
       await onUpdateMediaAsset('schoolLogoUrl', compressed);
-      setMediaNotice('Logo sekolah berhasil diperbarui di penyimpanan lokal.');
+      setMediaNotice('Logo sekolah berhasil diperbarui.');
     } catch (err) {
       setMediaError(
         err instanceof Error ? err.message : 'Gagal mengunggah logo sekolah.'
@@ -274,8 +265,7 @@ export function AdminPage({
               Login Panel Admin
             </h2>
             <p className="text-sm text-blue-100/85">
-              Masuk menggunakan akun simulasi lokal untuk menguji pengelolaan
-              aspirasi dan galeri foto.
+              Masuk menggunakan email dan password akun admin yang terdaftar di Supabase.
             </p>
           </div>
 
@@ -299,19 +289,19 @@ export function AdminPage({
                 htmlFor="admin-username"
                 className="block text-xs font-display font-bold text-sky-100"
               >
-                Username atau Email Admin
+                Email Admin
               </label>
               <div className="relative">
                 <UserIcon className="w-4 h-4 text-sky-300 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
-                  id="admin-username"
-                  type="text"
+                  id="admin-email"
+                  type="email"
                   required
-                  autoComplete="username"
+                  autoComplete="email"
                   disabled={isLoggingIn}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Contoh: admin"
+                  placeholder="Masukkan email admin"
                   className="w-full pl-10 pr-4 py-3 rounded-xl text-sm bg-[#08174B]/85 border-2 border-sky-300/40 text-white placeholder:text-blue-200/55 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-300 disabled:opacity-60"
                 />
               </div>
@@ -334,7 +324,7 @@ export function AdminPage({
                   disabled={isLoggingIn}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Masukkan password simulasi"
+                  placeholder="Masukkan password akun admin"
                   className="w-full pl-10 pr-11 py-3 rounded-xl text-sm bg-[#08174B]/85 border-2 border-sky-300/40 text-white placeholder:text-blue-200/55 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-300 disabled:opacity-60"
                 />
                 <button
@@ -405,9 +395,9 @@ export function AdminPage({
           <div className="flex items-center gap-2 text-xs font-semibold text-sky-300">
             <ShieldCheck className="w-4 h-4" />
             <span>
-              Sesi Simulasi Admin Aktif
+              Sesi Admin Aktif
               {authUser?.email
-                ? ` · ${formatAdminIdentity(authUser.email)}`
+                ? ` · ${authUser.email}`
                 : ''}
             </span>
           </div>
@@ -1058,7 +1048,7 @@ export function AdminPage({
         title="Hapus Aspirasi Secara Permanen?"
         description={
           deleteTarget
-            ? `Aspirasi dari "${deleteTarget.author}" pada kategori "${deleteTarget.category}" akan dihapus secara permanen dari LocalStorage.`
+            ? `Aspirasi dari "${deleteTarget.author}" pada kategori "${deleteTarget.category}" akan dihapus secara permanen dari database.`
             : ''
         }
         confirmLabel="Ya, Hapus"
