@@ -498,39 +498,9 @@ export async function seedSampleAspirations(): Promise<void> {
 }
 
 export async function updateMediaSettings(assets: MediaAssets): Promise<void> {
-  requireAdminSession();
+  await requireAdminSession();
   const normalized = normalizeMediaAssets(assets);
   writeToStorage(STORAGE_KEYS.media, JSON.stringify(normalized));
   notifyMediaListeners();
 }
 
-export async function signInAdminWithCredentials(
-  usernameOrEmail: string,
-  password: string
-): Promise<AdminSessionUser> {
-  const cleanUser = usernameOrEmail.trim().toLowerCase();
-  const isAcceptedUser = LOCAL_ADMIN_DEMO.acceptedUsernames.some(
-    (allowed) => allowed.toLowerCase() === cleanUser
-  );
-
-  if (!isAcceptedUser || password !== LOCAL_ADMIN_DEMO.password) {
-    throw new Error(
-      'Username atau password admin simulasi tidak sesuai. Gunakan kredensial uji coba yang tertera di bawah.'
-    );
-  }
-
-  const sessionUser: AdminSessionUser = {
-    uid: 'local-admin-sim',
-    email: resolveAdminLoginEmail(cleanUser),
-    isSimulatedLocal: true,
-  };
-
-  writeToStorage(STORAGE_KEYS.adminSession, JSON.stringify(sessionUser));
-  return sessionUser;
-}
-
-export async function logoutAdmin(): Promise<void> {
-  if (hasLocalStorage()) {
-    window.localStorage.removeItem(STORAGE_KEYS.adminSession);
-  }
-}
