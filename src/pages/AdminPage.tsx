@@ -71,7 +71,7 @@ export function AdminPage({
   const prefersReducedMotion = useReducedMotion();
 
   // State Login Supabase Auth
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -113,8 +113,8 @@ export function AdminPage({
 
   const handleCredentialsLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const cleanUsername = username.trim();
-    if (!cleanUsername || !password) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
       setLoginError('Masukkan email dan password admin terlebih dahulu.');
       return;
     }
@@ -122,7 +122,7 @@ export function AdminPage({
     setLoginError('');
     setIsLoggingIn(true);
     try {
-      await onLoginWithCredentials(cleanUsername, password);
+      await onLoginWithCredentials(cleanEmail, password);
       setPassword('');
     } catch (err) {
       if (err instanceof Error && err.message) {
@@ -286,7 +286,7 @@ export function AdminPage({
           >
             <div className="space-y-1.5">
               <label
-                htmlFor="admin-username"
+                htmlFor="admin-email"
                 className="block text-xs font-display font-bold text-sky-100"
               >
                 Email Admin
@@ -300,7 +300,7 @@ export function AdminPage({
                   autoComplete="email"
                   disabled={isLoggingIn}
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value)}
                   placeholder="Masukkan email admin"
                   className="w-full pl-10 pr-4 py-3 rounded-xl text-sm bg-[#08174B]/85 border-2 border-sky-300/40 text-white placeholder:text-blue-200/55 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-300 disabled:opacity-60"
                 />
