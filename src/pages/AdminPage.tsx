@@ -247,7 +247,7 @@ export function AdminPage({
     }
   };
 
-  // Tampilan Login Admin (Simulasi Lokal Tanpa Backend)
+  // Tampilan Login Admin melalui Supabase Auth
   if (!isAuthenticated) {
     return (
       <motion.div
@@ -299,7 +299,7 @@ export function AdminPage({
                   required
                   autoComplete="email"
                   disabled={isLoggingIn}
-                  value={username}
+                  value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Masukkan email admin"
                   className="w-full pl-10 pr-4 py-3 rounded-xl text-sm bg-[#08174B]/85 border-2 border-sky-300/40 text-white placeholder:text-blue-200/55 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-300 disabled:opacity-60"
