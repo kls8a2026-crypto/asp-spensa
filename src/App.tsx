@@ -9,7 +9,7 @@ import { HomePage } from './pages/HomePage';
 import { WritePage } from './pages/WritePage';
 import {
   type AdminSessionUser,
-  getStoredAdminSession,
+  getCurrentAdminSession,
   logoutAdmin,
   publishAspiration,
   removeAspiration,
@@ -60,14 +60,24 @@ export default function App() {
     DEFAULT_MEDIA_ASSETS
   );
 
-  // State Auth Admin Simulasi Lokal (tersimpan di LocalStorage sampai logout)
-  const [authUser, setAuthUser] = useState<AdminSessionUser | null>(() =>
-    getStoredAdminSession()
-  );
-  const [isAdminVerified, setIsAdminVerified] = useState<boolean>(() =>
-    Boolean(getStoredAdminSession())
-  );
+  // Pulihkan sesi admin dari Supabase Auth saat aplikasi dibuka
+  const [authUser, setAuthUser] = useState<AdminSessionUser | null>(null);
+  const [isAdminVerified, setIsAdminVerified] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getCurrentAdminSession().then((user) => {
+      if (!active) return;
+      setAuthUser(user);
+      setIsAdminVerified(Boolean(user));
+    }).catch(() => {
+      if (!active) return;
+      setAuthUser(null);
+      setIsAdminVerified(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   // Sinkronkan navigasi dengan hash URL agar tombol Back/Forward browser berfungsi
   useEffect(() => {
@@ -81,7 +91,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Muat aspirasi publik & pengaturan media dari LocalStorage
+  // Muat aspirasi publik dari Supabase dan pengaturan media dari LocalStorage
   useEffect(() => {
     const unsubPublic = subscribePublicAspirations(
       (items) => {
