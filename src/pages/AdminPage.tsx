@@ -5,7 +5,6 @@ import {
   Eye,
   EyeOff,
   Image as ImageIcon,
-  Info,
   KeyRound,
   Loader2,
   Lock,
@@ -27,7 +26,7 @@ import {
   getCategoryGlassTile,
   GlassCategoryIcon,
 } from '../components/GlassCategoryIcon';
-import { ADMIN_AUTH_DOMAIN, LOCAL_ADMIN_DEMO } from '../config/appConfig';
+import { ADMIN_AUTH_DOMAIN } from '../config/appConfig';
 import type { AdminSessionUser } from '../services/aspirationService';
 import { Aspiration, MediaAssets, PageRoute } from '../types/aspiration';
 import { formatIndonesianDateTime } from '../utils/dateFormat';
@@ -137,12 +136,6 @@ export function AdminPage({
     } finally {
       setIsLoggingIn(false);
     }
-  };
-
-  const handleFillDemoCredentials = () => {
-    setUsername(LOCAL_ADMIN_DEMO.displayUsername);
-    setPassword(LOCAL_ADMIN_DEMO.password);
-    setLoginError('');
   };
 
   const formatAdminIdentity = (email?: string | null) => {
@@ -382,45 +375,6 @@ export function AdminPage({
             </button>
           </form>
 
-          {/* Panduan Pengujian Admin Simulasi Lokal */}
-          <div className="soft-neu-inset rounded-2xl p-4 space-y-3 border border-sky-300/30">
-            <div className="flex items-start gap-2.5">
-              <Info className="w-4 h-4 text-sky-300 shrink-0 mt-0.5" />
-              <div className="space-y-1 text-xs">
-                <p className="font-display font-bold text-sky-200">
-                  Panduan Pengujian Admin (Simulasi Lokal)
-                </p>
-                <p className="text-blue-100/80 leading-relaxed">
-                  Versi ini menggunakan autentikasi simulasi di browser
-                  (LocalStorage), bukan sistem keamanan produksi. Autentikasi
-                  asli akan diintegrasikan pada tahap berikutnya.
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-[#06123B]/80 border border-sky-300/25 px-3.5 py-2.5 text-xs space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sky-200/80">Username:</span>
-                <code className="font-mono font-semibold text-white">
-                  {LOCAL_ADMIN_DEMO.displayUsername}
-                </code>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sky-200/80">Password:</span>
-                <code className="font-mono font-semibold text-white">
-                  {LOCAL_ADMIN_DEMO.password}
-                </code>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleFillDemoCredentials}
-              className="w-full py-2 px-3 rounded-xl text-xs font-semibold text-sky-100 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-300/35 transition-colors"
-            >
-              Isi Kredensial Uji Coba Otomatis
-            </button>
-          </div>
 
           <div className="text-center pt-1">
             <button
