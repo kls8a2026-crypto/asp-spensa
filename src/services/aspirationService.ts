@@ -399,7 +399,18 @@ export async function removeAspiration(id: string): Promise<void> {
 
 export async function seedSampleAspirations(): Promise<void> {
   await requireAdminSession();
-  const samples = SAMPLE_ASPIRATIONS.map((item) => ({
+  const { data: existing, error: readError } = await supabase
+    .from('aspirations')
+    .select('message');
+  if (readError) throw new Error(`Gagal memeriksa aspirasi contoh: ${readError.message}`);
+
+  const existingMessages = new Set((existing ?? []).map((item) => item.message));
+  const missingSamples = SAMPLE_ASPIRATIONS.filter(
+    (item) => !existingMessages.has(item.message)
+  );
+  if (missingSamples.length === 0) return;
+
+  const samples = missingSamples.map((item) => ({
     category: item.category,
     message: item.message,
     author: item.author,
