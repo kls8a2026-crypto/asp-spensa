@@ -91,7 +91,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Muat aspirasi publik dari Supabase dan pengaturan media dari LocalStorage
+  // Muat aspirasi publik dan pengaturan media bersama dari Supabase
   useEffect(() => {
     const unsubPublic = subscribePublicAspirations(
       (items) => {
