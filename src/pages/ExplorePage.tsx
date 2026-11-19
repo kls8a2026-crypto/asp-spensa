@@ -14,6 +14,7 @@ interface ExplorePageProps {
   aspirations: Aspiration[];
   isLoading?: boolean;
   galleryUrls: string[];
+  isMediaSettingsLoaded: boolean;
   isAdminLoggedIn: boolean;
   onUpdateGallery: (newUrls: string[]) => Promise<void> | void;
   onResetGallery: () => Promise<void> | void;
@@ -24,6 +25,7 @@ export function ExplorePage({
   aspirations,
   isLoading = false,
   galleryUrls,
+  isMediaSettingsLoaded,
   isAdminLoggedIn,
   onUpdateGallery,
   onResetGallery,
@@ -69,6 +71,7 @@ export function ExplorePage({
       {/* Galeri Foto Carousel */}
       <PosterBanner
         imageUrls={galleryUrls}
+        isLoading={!isMediaSettingsLoaded}
         headline="STOP BULLYING!"
         subheadline="Berani Peduli, Saling Menghargai."
         description="Sekolah yang nyaman dimulai dari sikap kita hari ini. Sampaikan kepedulian dan ide positifmu untuk menciptakan SMP Negeri 1 Ungaran yang ramah bagi semua."
