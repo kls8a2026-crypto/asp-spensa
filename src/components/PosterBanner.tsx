@@ -20,6 +20,7 @@ import { compressImageFile } from '../utils/imageCompression';
 
 interface PosterBannerProps {
   imageUrls: string[];
+  isLoading?: boolean;
   headline: string;
   subheadline: string;
   description?: string;
@@ -31,6 +32,7 @@ interface PosterBannerProps {
 
 export function PosterBanner({
   imageUrls,
+  isLoading = false,
   headline,
   subheadline,
   canEdit = false,
@@ -182,6 +184,16 @@ export function PosterBanner({
 
   const currentUrl = safeImages[activeIndex] ?? '';
   const isCurrentBroken = !currentUrl || Boolean(brokenUrls[currentUrl]);
+
+  if (isLoading) {
+    return (
+      <div
+        aria-label="Memuat galeri foto"
+        aria-busy="true"
+        className="w-full aspect-[16/9] max-h-[520px] rounded-3xl soft-neu-card bg-gradient-to-br from-[#0A1F64] via-[#102B7A] to-[#0A1F64] animate-pulse"
+      />
+    );
+  }
 
   return (
     <>
