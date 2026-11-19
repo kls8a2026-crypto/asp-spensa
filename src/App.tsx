@@ -59,6 +59,7 @@ export default function App() {
   const [mediaAssets, setMediaAssets] = useState<MediaAssets>(
     DEFAULT_MEDIA_ASSETS
   );
+  const [isMediaSettingsLoaded, setIsMediaSettingsLoaded] = useState(false);
 
   // Pulihkan sesi admin dari Supabase Auth saat aplikasi dibuka
   const [authUser, setAuthUser] = useState<AdminSessionUser | null>(null);
@@ -106,8 +107,14 @@ export default function App() {
     );
 
     const unsubMedia = subscribeMediaSettings(
-      (assets) => setMediaAssets(assets),
-      (err) => setDataError(err.message)
+      (assets) => {
+        setMediaAssets(assets);
+        setIsMediaSettingsLoaded(true);
+      },
+      (err) => {
+        setDataError(err.message);
+        setIsMediaSettingsLoaded(true);
+      }
     );
 
     return () => {
@@ -257,6 +264,7 @@ export default function App() {
             aspirations={publicAspirations}
             isLoading={isLoadingPublic}
             galleryUrls={mediaAssets.exploreGalleryUrls}
+            isMediaSettingsLoaded={isMediaSettingsLoaded}
             isAdminLoggedIn={isAdminVerified}
             onUpdateGallery={(urls) =>
               handleUpdateMedia('exploreGalleryUrls', urls)
@@ -269,6 +277,7 @@ export default function App() {
         {currentPage === 'write' && (
           <WritePage
             galleryUrls={mediaAssets.writeGalleryUrls}
+            isMediaSettingsLoaded={isMediaSettingsLoaded}
             isAdminLoggedIn={isAdminVerified}
             onUpdateGallery={(urls) =>
               handleUpdateMedia('writeGalleryUrls', urls)
