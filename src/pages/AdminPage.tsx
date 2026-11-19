@@ -179,7 +179,7 @@ export function AdminPage({
       const compressed = await compressImageFile(file, 1280, 0.8);
       await onUpdateMediaAsset(key, [...mediaAssets[key], compressed]);
       setMediaNotice(
-        `Foto baru berhasil ditambahkan ke ${label} (penyimpanan lokal).`
+        `Foto baru berhasil diunggah ke penyimpanan bersama.`
       );
     } catch (err) {
       setMediaError(
