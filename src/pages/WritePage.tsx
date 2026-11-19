@@ -23,6 +23,7 @@ import {
 
 interface WritePageProps {
   galleryUrls: string[];
+  isMediaSettingsLoaded: boolean;
   isAdminLoggedIn: boolean;
   onUpdateGallery: (newUrls: string[]) => Promise<void> | void;
   onResetGallery: () => Promise<void> | void;
@@ -32,6 +33,7 @@ interface WritePageProps {
 
 export function WritePage({
   galleryUrls,
+  isMediaSettingsLoaded,
   isAdminLoggedIn,
   onUpdateGallery,
   onResetGallery,
@@ -111,6 +113,7 @@ export function WritePage({
       {/* Galeri Foto Carousel */}
       <PosterBanner
         imageUrls={galleryUrls}
+        isLoading={!isMediaSettingsLoaded}
         headline="Jadilah Teman, Bukan Alasan Seseorang Takut ke Sekolah."
         subheadline="Tolak bullying. Dukung teman yang membutuhkan."
         description="Tolak bullying. Dukung teman yang membutuhkan. Mari menciptakan sekolah yang aman dan nyaman bagi semua."
