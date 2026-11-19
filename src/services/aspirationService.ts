@@ -16,58 +16,6 @@ export interface AdminSessionUser {
   email: string | null;
 }
 
-const STORAGE_KEYS = {
-  aspirations: 'aspirasi_spensa_aspirations_v1',
-  samplesSeeded: 'aspirasi_spensa_samples_seeded_v1',
-  media: 'aspirasi_spensa_media_v1',
-} as const;
-
-type Listener<T> = (data: T) => void;
-type ErrorListener = (err: Error) => void;
-
-const mediaListeners = new Set<{
-  onData: Listener<MediaAssets>;
-  onError?: ErrorListener;
-}>();
-
-let storageEventAttached = false;
-
-function hasLocalStorage(): boolean {
-  try {
-    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-  } catch {
-    return false;
-  }
-}
-
-function sortByNewest(items: Aspiration[]): Aspiration[] {
-  return [...items].sort((a, b) => {
-    const timeA = Date.parse(a.createdAt) || 0;
-    const timeB = Date.parse(b.createdAt) || 0;
-    return timeB - timeA;
-  });
-}
-
-function writeToStorage(key: string, value: string): void {
-  if (!hasLocalStorage()) {
-    throw new Error('Browser tidak mendukung penyimpanan LocalStorage.');
-  }
-  try {
-    window.localStorage.setItem(key, value);
-  } catch (err) {
-    if (
-      err instanceof DOMException &&
-      (err.name === 'QuotaExceededError' ||
-        err.name === 'NS_ERROR_DOM_QUOTA_REACHED')
-    ) {
-      throw new Error(
-        'Kapasitas LocalStorage browser penuh. Hapus beberapa foto galeri atau gunakan tautan URL gambar.'
-      );
-    }
-    throw new Error('Gagal menyimpan data ke LocalStorage browser.');
-  }
-}
-
 function normalizeMediaAssets(raw: unknown): MediaAssets {
   if (!raw || typeof raw !== 'object') {
     return { ...DEFAULT_MEDIA_ASSETS };
