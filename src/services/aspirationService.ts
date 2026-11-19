@@ -104,46 +104,6 @@ function normalizeMediaAssets(raw: unknown): MediaAssets {
   };
 }
 
-function readMediaFromStorage(): MediaAssets {
-  if (!hasLocalStorage()) {
-    return { ...DEFAULT_MEDIA_ASSETS };
-  }
-  const raw = window.localStorage.getItem(STORAGE_KEYS.media);
-  if (raw === null) {
-    const defaults = { ...DEFAULT_MEDIA_ASSETS };
-    writeToStorage(STORAGE_KEYS.media, JSON.stringify(defaults));
-    return defaults;
-  }
-  try {
-    return normalizeMediaAssets(JSON.parse(raw));
-  } catch {
-    return { ...DEFAULT_MEDIA_ASSETS };
-  }
-}
-
-function notifyMediaListeners(): void {
-  try {
-    const assets = readMediaFromStorage();
-    mediaListeners.forEach((l) => l.onData(assets));
-  } catch (err) {
-    const wrapped =
-      err instanceof Error
-        ? err
-        : new Error('Gagal membaca pengaturan media dari LocalStorage.');
-    mediaListeners.forEach((l) => l.onError?.(wrapped));
-  }
-}
-
-function ensureStorageSyncListener(): void {
-  if (storageEventAttached || typeof window === 'undefined') return;
-  storageEventAttached = true;
-  window.addEventListener('storage', (event) => {
-    if (event.key === STORAGE_KEYS.media || event.key === null) {
-      notifyMediaListeners();
-    }
-  });
-}
-
 export async function getCurrentAdminSession(): Promise<AdminSessionUser | null> {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return null;
@@ -299,20 +259,46 @@ export function subscribeMediaSettings(
   onData: (assets: MediaAssets) => void,
   onError?: (err: Error) => void
 ): () => void {
-  ensureStorageSyncListener();
-  const entry = { onData, onError };
-  mediaListeners.add(entry);
-  try {
-    onData(readMediaFromStorage());
-  } catch (err) {
-    onError?.(
-      err instanceof Error
-        ? err
-        : new Error('Gagal memuat pengaturan media dari LocalStorage.')
-    );
-  }
+  let active = true;
+
+  const load = async () => {
+    const { data, error } = await supabase
+      .from('media_settings')
+      .select('school_logo_url, explore_gallery_urls, write_gallery_urls')
+      .eq('id', 'global')
+      .maybeSingle();
+
+    if (!active) return;
+    if (error) {
+      onError?.(new Error(`Gagal memuat pengaturan galeri dari Supabase: ${error.message}`));
+      return;
+    }
+
+    onData(normalizeMediaAssets(data ? {
+      schoolLogoUrl: data.school_logo_url,
+      exploreGalleryUrls: data.explore_gallery_urls,
+      writeGalleryUrls: data.write_gallery_urls,
+    } : DEFAULT_MEDIA_ASSETS));
+  };
+
+  void load();
+  const channel = supabase
+    .channel('global-media-settings')
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'media_settings',
+      filter: 'id=eq.global',
+    }, () => { void load(); })
+    .subscribe((status) => {
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        onError?.(new Error('Koneksi sinkronisasi pengaturan galeri Supabase gagal.'));
+      }
+    });
+
   return () => {
-    mediaListeners.delete(entry);
+    active = false;
+    void supabase.removeChannel(channel);
   };
 }
 
@@ -423,10 +409,50 @@ export async function seedSampleAspirations(): Promise<void> {
   if (error) throw new Error(`Gagal menambahkan aspirasi contoh: ${error.message}`);
 }
 
+async function uploadMediaDataUrl(dataUrl: string, folder: string): Promise<string> {
+  const response = await fetch(dataUrl);
+  if (!response.ok) throw new Error('Gagal memproses foto yang akan diunggah.');
+  const blob = await response.blob();
+  const extension = blob.type === 'image/png' ? 'png'
+    : blob.type === 'image/webp' ? 'webp'
+    : blob.type === 'image/gif' ? 'gif' : 'jpg';
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+  const { error } = await supabase.storage
+    .from('aspiration-media')
+    .upload(path, blob, { contentType: blob.type || 'image/jpeg', upsert: false });
+  if (error) throw new Error(`Gagal mengunggah foto ke Supabase Storage: ${error.message}`);
+  return supabase.storage.from('aspiration-media').getPublicUrl(path).data.publicUrl;
+}
+
+async function persistMediaUrl(url: string | null, folder: string): Promise<string | null> {
+  if (!url || !url.startsWith('data:')) return url;
+  return uploadMediaDataUrl(url, folder);
+}
+
 export async function updateMediaSettings(assets: MediaAssets): Promise<void> {
   await requireAdminSession();
   const normalized = normalizeMediaAssets(assets);
-  writeToStorage(STORAGE_KEYS.media, JSON.stringify(normalized));
-  notifyMediaListeners();
+
+  const schoolLogoUrl = await persistMediaUrl(normalized.schoolLogoUrl, 'school-logo');
+  const exploreGalleryUrls = await Promise.all(
+    normalized.exploreGalleryUrls.map((url) => persistMediaUrl(url, 'explore-gallery'))
+  ) as string[];
+  const writeGalleryUrls = await Promise.all(
+    normalized.writeGalleryUrls.map((url) => persistMediaUrl(url, 'write-gallery'))
+  ) as string[];
+
+  const { error } = await supabase
+    .from('media_settings')
+    .upsert({
+      id: 'global',
+      school_logo_url: schoolLogoUrl,
+      explore_gallery_urls: exploreGalleryUrls,
+      write_gallery_urls: writeGalleryUrls,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+
+  if (error) {
+    throw new Error(`Gagal menyimpan pengaturan galeri ke database: ${error.message}`);
+  }
 }
 
