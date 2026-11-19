@@ -41,7 +41,7 @@ values (
   'aspiration-media',
   true,
   5242880,
-  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
 )
 on conflict (id) do update
 set public = true,
